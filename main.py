@@ -1,13 +1,20 @@
 # main.py
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, field_validator  # Use @validator for Pydantic 1.x
 from fastapi.exceptions import RequestValidationError
+
 from app.operations import add, subtract, multiply, divide  # Ensure correct import path
 import uvicorn
 import logging
+
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models.user import User
+from app.schemas.base import UserCreate
+from app.schemas.user import UserRead, UserLogin, Token
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +43,46 @@ class OperationResponse(BaseModel):
 # Pydantic model for error response
 class ErrorResponse(BaseModel):
     error: str = Field(..., description="Error message")
+    
+@app.post(
+    "/users/register",
+    response_model=UserRead,
+    status_code=status.HTTP_201_CREATED,
+    responses={400: {"model": ErrorResponse}},
+)
+async def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Register a new user.
+    """
+    try:
+        new_user = User.register(db, user.model_dump())
+        db.commit()
+        db.refresh(new_user)
+        return new_user
+    except ValueError as e:
+        # register() raises ValueError for duplicate email/username or bad input
+        db.rollback()
+        logger.error(f"Registration error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+ 
+ 
+@app.post(
+    "/users/login",
+    response_model=Token,
+    responses={401: {"model": ErrorResponse}},
+)
+async def login_user(credentials: UserLogin, db: Session = Depends(get_db)):
+    """
+    Log a user in.
+    """
+    auth_result = User.authenticate(
+        db, credentials.username, credentials.password
+    )
+    if auth_result is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return auth_result
+ 
+
 
 # Custom Exception Handlers
 @app.exception_handler(HTTPException)
