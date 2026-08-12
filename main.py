@@ -18,6 +18,11 @@ from app.schemas.user import UserRead, UserLogin, Token
 
 from app.database_init import init_db
 
+from uuid import UUID
+from typing import List
+from app.models.calculation import Calculation, CalculationType, OperationFactory
+from app.schemas.calculation import CalculationCreate, CalculationRead
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +31,7 @@ app = FastAPI()
 @app.on_event("startup")
 def on_startup():
     init_db()
-    
+
 # Setup templates directory
 templates = Jinja2Templates(directory="templates")
 
@@ -48,6 +53,90 @@ class OperationResponse(BaseModel):
 # Pydantic model for error response
 class ErrorResponse(BaseModel):
     error: str = Field(..., description="Error message")
+
+
+@app.get("/calculations", response_model=List[CalculationRead])
+async def browse_calculations(db: Session = Depends(get_db)):
+    """Return all calculations."""
+    return db.query(Calculation).all()
+
+
+@app.get(
+    "/calculations/{calc_id}",
+    response_model=CalculationRead,
+    responses={404: {"model": ErrorResponse}},
+)
+async def read_calculation(calc_id: UUID, db: Session = Depends(get_db)):
+    """Return a single calculation by its id, or 404 if not found."""
+    calc = db.query(Calculation).filter(Calculation.id == calc_id).first()
+    if calc is None:
+        raise HTTPException(status_code=404, detail="Calculation not found")
+    return calc
+ 
+@app.post(
+    "/calculations",
+    response_model=CalculationRead,
+    status_code=status.HTTP_201_CREATED,
+    responses={400: {"model": ErrorResponse}},
+)
+async def add_calculation(
+    payload: CalculationCreate, db: Session = Depends(get_db)
+):
+
+    try:
+        result = OperationFactory.compute(payload.type, payload.a, payload.b)
+        calc = Calculation(
+            user_id=payload.user_id,
+            a=payload.a,
+            b=payload.b,
+            type=payload.type.value,
+            result=result,
+        )
+        db.add(calc)
+        db.commit()
+        db.refresh(calc)
+        return calc
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+ 
+ 
+@app.put(
+    "/calculations/{calc_id}",
+    response_model=CalculationRead,
+    responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+)
+async def edit_calculation(
+    calc_id: UUID, payload: CalculationCreate, db: Session = Depends(get_db)
+):
+    calc = db.query(Calculation).filter(Calculation.id == calc_id).first()
+    if calc is None:
+        raise HTTPException(status_code=404, detail="Calculation not found")
+    try:
+        calc.a = payload.a
+        calc.b = payload.b
+        calc.type = payload.type.value
+        calc.result = OperationFactory.compute(payload.type, payload.a, payload.b)
+        db.commit()
+        db.refresh(calc)
+        return calc
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+ 
+@app.delete(
+    "/calculations/{calc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"model": ErrorResponse}},
+)
+async def delete_calculation(calc_id: UUID, db: Session = Depends(get_db)):
+    """Delete a calculation by id, or 404 if nonexistent"""
+    calc = db.query(Calculation).filter(Calculation.id == calc_id).first()
+    if calc is None:
+        raise HTTPException(status_code=404, detail="Calculation not found")
+    db.delete(calc)
+    db.commit()
+    return None
 
 @app.post(
     "/users/register",
