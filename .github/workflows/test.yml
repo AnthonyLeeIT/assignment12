@@ -99,8 +99,8 @@ jobs:
         with:
           push: true
           tags: |
-            ahl3389/assignment11:latest
-            ahl3389/assignment11:${{ github.sha }}
+            ahl3389/assignment12:latest
+            ahl3389/assignment12:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=ahl3389/assignment11:cache
+          cache-from: type=registry,ref=ahl3389/assignment12:cache
           cache-to: type=inline,mode=max
