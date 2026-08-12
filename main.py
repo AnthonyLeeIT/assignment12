@@ -16,12 +16,17 @@ from app.models.user import User
 from app.schemas.base import UserCreate
 from app.schemas.user import UserRead, UserLogin, Token
 
+from app.database_init import init_db
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
+@app.on_event("startup")
+def on_startup():
+    init_db()
+    
 # Setup templates directory
 templates = Jinja2Templates(directory="templates")
 
@@ -43,7 +48,7 @@ class OperationResponse(BaseModel):
 # Pydantic model for error response
 class ErrorResponse(BaseModel):
     error: str = Field(..., description="Error message")
-    
+
 @app.post(
     "/users/register",
     response_model=UserRead,
